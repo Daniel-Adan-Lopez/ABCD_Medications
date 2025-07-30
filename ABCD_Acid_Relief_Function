@@ -7,11 +7,11 @@ library(tidyr)
 library(readxl)
 
 # -------------------------------------------------
-# 1️⃣ Load Data & Medication Mapping
+#  1. Load Data & Medication Mapping
 # -------------------------------------------------
 #identifying and subsetting only the medication variables. Taking both the RX
 #and the OTC variables. 
-ABCD_meds_subset <- ABCD_Medication_LassoVersion %>%
+ABCD_meds_subset <- ABCD_6_0_full %>%  #subsetting is not really essential, just to make it easier to work with the data
   select(
     participant_id,
     session_id,
@@ -25,39 +25,24 @@ ABCD_meds_subset <- ABCD_Medication_LassoVersion %>%
 
 
 str(ABCD_meds_subset)
-
+#'data.frame':	68190 obs. of  378 variables:
 
 med_data <- ABCD_meds_subset   #could just be your ABCD dataframe. Just requires the OTC and RX variables.
 meds_info <- read.csv("C:/Users/indoo/Downloads/ABCD_Acid_Relief_73025.csv") #downloaded off Github
 
 
-meds_info <- read_excel("~/PhD/DBIL/ABCD Medication/RXvocabulary/ABCD_Meds.xlsx", sheet = "ATC_Master_List") %>%
-  select(RXCUI, Medication_Label, Estimated_Use_Category_1) %>%
-  filter(!is.na(Estimated_Use_Category_1)) %>%
-  distinct()
-
 # RXCUIs where label matching is unreliable
+#There were errors on these. Not really important since we are relying on the RXCUI
+#column mostly rather than the med label column, but keeping it in just in case. 
 force_rx_only <- c("1150360", "1159901", "1440934", "393497", "55062", "6142", "702425")
 
+ 
 # -------------------------------------------------
-# 2️⃣ Subset Only Medication Columns (IDs + Labels)
+#  2. Define Columns & Early Visits
 # -------------------------------------------------
-
-med_data <- med_data %>%
-  select(
-    participant_id,
-    session_id,
-    matches("^ph_p_meds__rx__id_"),
-    matches("^ph_p_meds__rx__label_"),
-    matches("^ph_p_meds__otc__id_"),
-    matches("^ph_p_meds__otc__label_"),
-    matches("^ph_p_meds__rx_"),
-    matches("^ph_p_meds__otc_")
-  )
-
-# -------------------------------------------------
-# 3️⃣ Define Columns & Early Visits
-# -------------------------------------------------
+#early and late is used to differentiate between time frames collected at every visit (past 24 hrs,
+#past 2 weeks), and those collected only at year 3 onwards (past year use).
+#will be important when creating the different time frame variants for each medication category.
 
 rx_cols_early        <- paste0("ph_p_meds__rx__id_", str_pad(1:15, 3, pad = "0"))
 rx_label_cols_early  <- paste0("ph_p_meds__rx__label_", str_pad(1:15, 3, pad = "0"))
@@ -70,13 +55,13 @@ otc_label_cols_early <- paste0("ph_p_meds__otc__label_", str_pad(1:15, 3, pad = 
 otc_cols_late        <- paste0("ph_p_meds__otc__id_", str_pad(1:15, 3, pad = "0"), "__v01")
 otc_label_cols_late  <- paste0("ph_p_meds__otc__label_", str_pad(1:15, 3, pad = "0"), "__v01")
 
-early_sessions <- c("ses-00A", "ses-01A", "ses-02A")
+early_sessions <- c("ses-00A", "ses-01A", "ses-02A") #session_id variable
 
 med_data <- med_data %>%
   mutate(is_early_visit = session_id %in% early_sessions)
 
 # -------------------------------------------------
-# 4️⃣ Process Rows for Past 2 Week Flags (mapply approach)
+# 3. Process Rows for Past 2 Week Flags 
 # -------------------------------------------------
 
 row_list <- med_data %>%
@@ -128,7 +113,7 @@ process_row <- function(row) {
   )
 }
 
-# Parallelize for speed
+# Parallelize for speed. Very helpful when doing multiple medication categories at once. 
 future::plan(multisession, workers = parallel::detectCores() - 1)
 med_lists <- furrr::future_map(row_list, process_row, .progress = TRUE)
 
@@ -179,7 +164,7 @@ for (cat in all_categories) {
 }
 
 # -------------------------------------------------
-# 5️⃣ Past 24-Hour Flags (x24hr)
+# 4. Past 24-Hour Flags (x24hr)
 # -------------------------------------------------
 
 # Function to extract 24hr info (RX and OTC)
@@ -263,7 +248,7 @@ med_data <- med_data %>%
   left_join(med_24hr_wide, by = c("participant_id", "session_id"))
 
 # -------------------------------------------------
-# 6️⃣ Past Year Flags (x1yr)
+# 5. Past Year Flags (x1yr)
 # -------------------------------------------------
 
 extract_past_year_info <- function(data, type = c("rx", "otc")) {
@@ -322,10 +307,38 @@ med_data <- med_data %>%
   left_join(med_1yr_wide, by = c("participant_id", "session_id"))
 
 # -------------------------------------------------
-# ✅ 7️⃣ QC Check
+# 6. QC Check
 # -------------------------------------------------
-
-table(med_data$session_id, med_data$x2wk_acid_relief_heartburn_treatment, useNA = "always")
+#past 24 hour use
 table(med_data$session_id, med_data$x24hr_acid_relief_heartburn_treatment, useNA = "always")
+           0     1  <NA>
+  ses-00A 11791    77     0
+  ses-01A 11154    65     0
+  ses-02A 10903    70     0
+  ses-03A 10405    45     0
+  ses-04A  9663    76     0
+  ses-05A  8819    66     0
+  ses-06A  5022    34     0
+
+#past 2 week use
+table(med_data$session_id, med_data$x2wk_acid_relief_heartburn_treatment, useNA = "always")
+           0     1  <NA>
+  ses-00A 11751   117     0
+  ses-01A 11123    96     0
+  ses-02A 10859   114     0
+  ses-03A 10305   145     0
+  ses-04A  9588   151     0
+  ses-05A  8756   129     0
+  ses-06A  4963    93     0
+
+#past year use. Only collected at year 3 onward. 
 table(med_data$session_id, med_data$x1yr_acid_relief_heartburn_treatment, useNA = "always")
+           0     1  <NA>
+  ses-00A 11868     0     0
+  ses-01A 11219     0     0
+  ses-02A 10973     0     0
+  ses-03A 10277   173     0
+  ses-04A  9569   170     0
+  ses-05A  8731   154     0
+  ses-06A  4947   109     0
 
