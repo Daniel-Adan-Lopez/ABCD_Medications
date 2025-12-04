@@ -6,7 +6,7 @@ All scripts currently require the **ABCD 6.0** data release.
 🗂️ **Mapping File**  
 The code depends on a mapping file (CSV) that specifies which medications belong to each category.  
 
-Use the appropriate mapping file for the medication category you want to recreate (e.g., *Acid Relief/Heartburn*).  
+Use the appropriate mapping file for the medication category you want to recreate (e.g., *Any ADHD Medication*).  
 
 The mapping file **must include at least** the following columns:  
 1️⃣ **RXCUI**  
@@ -14,7 +14,7 @@ The mapping file **must include at least** the following columns:
 3️⃣ **Estimated_Use_Category_1**
 
 📄 **Data Format Assumption**  
-The scripts assume the data is in **long format** — meaning **one row per participant per visit** they attended.
+The scripts assume the ABCD data is in **long format** — meaning **one row per participant per visit** they attended.
 
 💻 **Language**  
 Code is currently written for **R** only.
