@@ -20,8 +20,8 @@ Each script depends on a mapping file (e.g., ADHD_Medications.xlsx) that determi
 
 Your mapping file must contain at least the following columns:
 
-RXCUI	
-Medication_Label
+RXCUI	|
+Medication_Label |
 Estimated_Use_Category_1
 
 📄 Data Format
