@@ -1,0 +1,52 @@
+#Any ADHD Medication variable
+
+The following will create a binary variable at each time point for each participant specifying whether they took any ADHD medication.
+
+#STEP 1 — Load your ADHD medication mapping
+
+#here I use the ADHD_Medications.csv file that contains three columns (RXCUI, Medication_Label, Estimated_Use_Category_1)
+adhd_map <- read.csv("ADHD_Medications.csv", stringsAsFactors = FALSE)
+
+#The ABCD 6.0 dataset containing all the RXCUI and Medication Label data should
+#be loaded. Here my dataframe containing all the longitudinal ABCD data is called ABCD_Medication_Inventory.  
+
+#contains three columns.
+
+adhd_map <- adhd_map %>%
+  mutate(
+    RXCUI = as.character(RXCUI),
+    Medication_Label = tolower(trimws(Medication_Label))
+  )
+
+#STEP 2 — Create lists of RXCUIs + labels to search for
+adhd_rxcui  <- unique(adhd_map$RXCUI)
+adhd_labels <- unique(adhd_map$Medication_Label)
+
+#STEP 3 — Create the PAST 2-WEEK ADHD variable (x2wk_any_adhd_med) by looking
+#at all the rx and otc variables
+ABCD_Medication_Inventory$x2wk_any_adhd_med <- mapply(function(rx_list, rx_labels, otc_list, otc_labels) {
+  
+  match_rx        <- any(adhd_rxcui %in% rx_list, na.rm = TRUE)
+  match_label     <- any(adhd_labels %in% tolower(rx_labels), na.rm = TRUE)
+  match_otc       <- any(adhd_rxcui %in% otc_list, na.rm = TRUE)
+  match_otc_label <- any(adhd_labels %in% tolower(otc_labels), na.rm = TRUE)
+  
+  as.integer(match_rx | match_label | match_otc | match_otc_label)
+  
+},
+ABCD_Medication_Inventory$rx_ids_all,
+ABCD_Medication_Inventory$rx_labels_all,
+ABCD_Medication_Inventory$otc_ids_all,
+ABCD_Medication_Inventory$otc_labels_all,
+SIMPLIFY = TRUE)
+
+#distributions that took any ADHD medication in the past 2 weeks
+table(ABCD_Medication_Inventory$session_id, ABCD_Medication_Inventory$x2wk_any_adhd_med)
+#            0     1
+# ses-00A 10851  1008
+# ses-01A 10218   978
+# ses-02A  9913   991
+# ses-03A  9520   877
+# ses-04A  8848   866
+# ses-05A  8080   770
+# ses-06A  4550   475
