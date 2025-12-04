@@ -4,7 +4,8 @@
 All scripts currently require the **ABCD 6.0** data release.
 
 📂 **What are the Medication Categories**
-Distribution of medication categories can be found here: https://public.tableau.com/views/ABCD_Medications_v1/MedicationDashboard
+
+Information about the medication categories can be found here: https://public.tableau.com/views/ABCD_Medications_v1/MedicationDashboard
 And https://www.medrxiv.org/content/10.1101/2025.11.19.25340321v1
 
 🗂️ **Mapping File**  
