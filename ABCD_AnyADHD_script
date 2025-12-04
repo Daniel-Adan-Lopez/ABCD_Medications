@@ -1,4 +1,4 @@
-#Any ADHD Medication variable
+#Any ADHD Medication variable - Past 2 week use
 
 The following will create a binary variable at each time point for each participant specifying whether they took any ADHD medication.
 
