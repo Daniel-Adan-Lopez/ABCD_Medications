@@ -1,35 +1,38 @@
-📌 **Code Requirements & Notes**
+📌 Code Requirements & Notes
 
-📂 **Dataset Version**  
-All scripts currently require the **ABCD 6.0** data release.
+📂 Dataset Version
+All scripts require the ABCD 6.0 data release.
 
-📂 **What are the Medication Categories**
+📂 Medication Categories
+Information about the medication categories is available here:
 
-Information about the medication categories can be found here: https://public.tableau.com/views/ABCD_Medications_v1/MedicationDashboard
-And https://www.medrxiv.org/content/10.1101/2025.11.19.25340321v1
+Interactive dashboard: https://public.tableau.com/views/ABCD_Medications_v1/MedicationDashboard
 
-🗂️ **Mapping File**  
-The code depends on a mapping file (e.g., ADHD_Medications.xlsx) that specifies which medications belong to each category.  
+Methodology preprint: https://www.medrxiv.org/content/10.1101/2025.11.19.25340321v1
 
-Use the appropriate mapping file for the medication category you want to recreate (e.g., *Any ADHD Medication*).  
+🗂️ Mapping File
+The code depends on a category-specific mapping file (e.g., ADHD_Medications.xlsx) that identifies all medications belonging to a given category.
 
-The mapping file **must include at least** the following columns:  
-1️⃣ **RXCUI**  
-2️⃣ **Medication_Label**  
-3️⃣ **Estimated_Use_Category_1**
+Your mapping file must include at least the following columns:
+1️⃣ RXCUI
+2️⃣ Medication_Label
+3️⃣ Estimated_Use_Category_1
 
-📄 **Data Format Assumption**  
-The scripts assume the ABCD data is in **long format** — meaning **one row per participant per visit** they attended.
+📄 Data Format Assumption
+The scripts assume the ABCD data is in long format, where each participant has one row per visit.
 
-💻 **Language**  
-Code is currently written for **R** only.
+💻 Language
+All scripts are written in R.
 
-🏷️ **Generated Variables**  
-For each medication category in the mapping file, the scripts will create **three timeframe indicator variables**:
+🏷️ Generated Variables
+For each medication category in the mapping file, the scripts generate three indicator variables, one for each timeframe:
 
-- `x1yr_` → Past year *(available starting Year 3 onward; not collected in Years 0–2)*  
-- `x2wk_` → Past two weeks  
-- `x24hr_` → Past 24 hours  
+x1yr_ → Past year
+(Only available starting in Year 3; not collected at baseline, Year 1, or Year 2)
 
-⚠️ **NA Handling**  
-All **NA values** are recoded to **0**, meaning they are treated as **“did not take medication”** in the created variables.
+x2wk_ → Past two weeks
+
+x24hr_ → Past 24 hours
+
+⚠️ Missing Data Handling
+All NA values are recoded to 0, meaning they are treated as “did not take medication.”
