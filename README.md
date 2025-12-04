@@ -1,38 +1,56 @@
 📌 Code Requirements & Notes
 
 📂 Dataset Version
+
 All scripts require the ABCD 6.0 data release.
 
-📂 Medication Categories
-Information about the medication categories is available here:
+📚 Medication Categories
 
-Interactive dashboard: https://public.tableau.com/views/ABCD_Medications_v1/MedicationDashboard
+You can explore the medication categories at the following resources:
 
-Methodology preprint: https://www.medrxiv.org/content/10.1101/2025.11.19.25340321v1
+🔹 Interactive Tableau Dashboard
+👉 https://public.tableau.com/views/ABCD_Medications_v1/MedicationDashboard
+
+🔹 Methodology Preprint (medRxiv)
+👉 https://www.medrxiv.org/content/10.1101/2025.11.19.25340321v1
 
 🗂️ Mapping File
-The code depends on a category-specific mapping file (e.g., ADHD_Medications.xlsx) that identifies all medications belonging to a given category.
 
-Your mapping file must include at least the following columns:
-1️⃣ RXCUI
-2️⃣ Medication_Label
-3️⃣ Estimated_Use_Category_1
+Each script depends on a mapping file (e.g., ADHD_Medications.xlsx) that determines which medications belong to each category.
 
-📄 Data Format Assumption
-The scripts assume the ABCD data is in long format, where each participant has one row per visit.
+Your mapping file must contain at least the following columns:
 
-💻 Language
+RXCUI	
+Medication_Label
+Estimated_Use_Category_1
+
+📄 Data Format
+
+Scripts assume the ABCD dataset is in long format:
+
+One row per participant per visit
+
+All medication survey items exist within that row
+
+💻 Programming Language
+
 All scripts are written in R.
 
 🏷️ Generated Variables
-For each medication category in the mapping file, the scripts generate three indicator variables, one for each timeframe:
 
-x1yr_ → Past year
-(Only available starting in Year 3; not collected at baseline, Year 1, or Year 2)
+For each category in the medication mapping file, the scripts generate three binary indicator variables:
 
-x2wk_ → Past two weeks
+Variable Prefix	Timeframe	Notes
+x1yr_	Past year	Only collected starting in Year 3
+x2wk_	Past 2 weeks	Available at all visits
+x24hr_	Past 24 hours	Available at all visits
 
-x24hr_ → Past 24 hours
+Each variable is coded:
 
-⚠️ Missing Data Handling
-All NA values are recoded to 0, meaning they are treated as “did not take medication.”
+1 → medication from that category was taken
+
+0 → not taken
+
+⚠️ Missing Data
+
+All NA values in generated variables are recoded to 0, meaning “did not take medication.”
