@@ -1,47 +1,175 @@
-#Any ADHD Medication variable - Past 2 week use
+# Any ADHD Medication variable – ABCD Release 6.0
+# ------------------------------------------------
+# This script creates binary indicators for whether a participant
+# took any ADHD medication at each time point. 
+#
+# Three durations of use are included:
+#   1. Past 24-hour use
+#   2. Past 2-week use
+#   3. Past-year use (collected beginning at Year 3; earlier visits are NA)
+#
+# Notes:
+#  • ADHD medications include both stimulant and non-stimulant classes.
+#  • Medication identification uses both RXCUI codes and standardized labels.
+#  • Early/late visit differences in RX/OTC structure are handled automatically.
 
-The following will create a binary variable at each time point for each participant specifying whether they took any ADHD medication.
+library(arrow)
+library(readxl)
+library(stringr)
+library(tidyr)
+library(dplyr)
+library(furrr)
+library(purrr)
 
-#STEP 1 — Load your ADHD medication mapping
 
-#here I use the ADHD_Medications.csv file that contains three columns (RXCUI, Medication_Label, Estimated_Use_Category_1)
-adhd_map <- read.csv("ADHD_Medications.csv", stringsAsFactors = FALSE)
+# ABCD Med Masterlist contains all the demographics + RX/OTC survey questions
+med_data  <- ABCD_Med_MasterList
 
-#The ABCD 6.0 dataset containing all the RXCUI and Medication Label data should
-#be loaded. Here my dataframe containing all the longitudinal ABCD data is called ABCD_Medication_Inventory.  
-
-#contains three columns.
-
-adhd_map <- adhd_map %>%
+# ADHD Medications mapping file (RXCUI + Medication_Label, all ADHD meds)
+meds_info <- read_excel("C:/Users/indoo/Documents/PhD/DBIL/ABCD Medication/ADHD_Medications.xlsx") %>%
   mutate(
-    RXCUI = as.character(RXCUI),
+    RXCUI            = as.character(RXCUI),
     Medication_Label = tolower(trimws(Medication_Label))
   )
 
-#STEP 2 — Create lists of RXCUIs + labels to search for
-adhd_rxcui  <- unique(adhd_map$RXCUI)
-adhd_labels <- unique(adhd_map$Medication_Label)
 
-#STEP 3 — Create the PAST 2-WEEK ADHD variable (x2wk_any_adhd_med) by looking
-#at all the rx and otc variables
-ABCD_Medication_Inventory$x2wk_any_adhd_med <- mapply(function(rx_list, rx_labels, otc_list, otc_labels) {
+# -------------------------------------------------
+# 2. Build row-level RX/OTC lists (respecting early vs late visits)
+# -------------------------------------------------
+
+# Set up parallel plan (adjust workers as needed)
+future::plan(multisession, workers = parallel::detectCores() - 1)
+
+# Early sessions use original columns; later sessions use __v01 + confirm
+early_sessions <- c("ses-00A", "ses-01A", "ses-02A")
+
+med_data <- med_data %>%
+  mutate(is_early_visit = session_id %in% early_sessions)
+
+# Define column names
+rx_cols_early        <- paste0("ph_p_meds__rx__id_",    str_pad(1:15, 3, pad = "0"))
+rx_label_cols_early  <- paste0("ph_p_meds__rx__label_", str_pad(1:15, 3, pad = "0"))
+
+rx_cols_late         <- paste0("ph_p_meds__rx__id_",    str_pad(1:15, 3, pad = "0"), "__v01")
+rx_label_cols_late   <- paste0("ph_p_meds__rx__label_", str_pad(1:15, 3, pad = "0"), "__v01")
+rx_confirm_late      <- paste0("ph_p_meds__rx_",        str_pad(1:15, 3, pad = "0"), "__01")
+
+otc_cols_early       <- paste0("ph_p_meds__otc__id_",    str_pad(1:15, 3, pad = "0"))
+otc_label_cols_early <- paste0("ph_p_meds__otc__label_", str_pad(1:15, 3, pad = "0"))
+
+otc_cols_late        <- paste0("ph_p_meds__otc__id_",    str_pad(1:15, 3, pad = "0"), "__v01")
+otc_label_cols_late  <- paste0("ph_p_meds__otc__label_", str_pad(1:15, 3, pad = "0"), "__v01")
+
+# Convert to list of rows
+row_list <- med_data %>%
+  select(
+    participant_id, session_id, is_early_visit,
+    all_of(c(
+      rx_cols_early, rx_label_cols_early,
+      rx_cols_late, rx_label_cols_late, rx_confirm_late,
+      otc_cols_early, otc_label_cols_early,
+      otc_cols_late, otc_label_cols_late
+    ))
+  ) %>%
+  split(., seq_len(nrow(.)))  # list of rows
+
+# Function to apply per row
+process_row <- function(row) {
+  is_early <- row$is_early_visit
   
-  match_rx        <- any(adhd_rxcui %in% rx_list, na.rm = TRUE)
-  match_label     <- any(adhd_labels %in% tolower(rx_labels), na.rm = TRUE)
-  match_otc       <- any(adhd_rxcui %in% otc_list, na.rm = TRUE)
-  match_otc_label <- any(adhd_labels %in% tolower(otc_labels), na.rm = TRUE)
+  # RX
+  rx_ids <- if (is_early) {
+    unlist(row[rx_cols_early])
+  } else {
+    confirms <- unlist(row[rx_confirm_late])
+    ids      <- unlist(row[rx_cols_late])
+    ids[!(confirms == 1)] <- NA
+    ids
+  }
+  
+  rx_labels <- if (is_early) {
+    unlist(row[rx_label_cols_early])
+  } else {
+    confirms <- unlist(row[rx_confirm_late])
+    labels   <- unlist(row[rx_label_cols_late])
+    labels[!(confirms == 1)] <- NA
+    labels
+  }
+  
+  # OTC
+  otc_ids <- if (is_early) {
+    unlist(row[otc_cols_early])
+  } else {
+    unlist(row[otc_cols_late])
+  }
+  
+  otc_labels <- if (is_early) {
+    unlist(row[otc_label_cols_early])
+  } else {
+    unlist(row[otc_label_cols_late])
+  }
+  
+  list(
+    rx_ids_all     = rx_ids,
+    rx_labels_all  = rx_labels,
+    otc_ids_all    = otc_ids,
+    otc_labels_all = otc_labels
+  )
+}
+
+# Apply in parallel using furrr
+med_lists <- furrr::future_map(row_list, process_row, .progress = TRUE)
+
+# Combine back into med_data
+med_data <- med_data %>%
+  bind_cols(
+    tibble::tibble(
+      rx_ids_all     = map(med_lists, "rx_ids_all"),
+      rx_labels_all  = map(med_lists, "rx_labels_all"),
+      otc_ids_all    = map(med_lists, "otc_ids_all"),
+      otc_labels_all = map(med_lists, "otc_labels_all")
+    )
+  )
+
+
+
+# -------------------------------------------------
+# 3. Create "Any ADHD Medication – Past 2 Weeks" flag
+# -------------------------------------------------
+
+# RXCUIs with unreliable labels: only match by RXCUI
+force_rx_only <- c("1150360", "1159901", "1440934",
+                   "393497", "55062", "6142", "702425")
+
+# ADHD meds: the whole mapping file is just ADHD Medication
+adhd_rx_ids <- unique(meds_info$RXCUI)
+adhd_labels <- unique(meds_info$Medication_Label)
+
+adhd_restrict_to_rx <- any(adhd_rx_ids %in% force_rx_only)
+
+med_data$x2wk_any_adhd_med <- mapply(function(rx_list, rx_labels, otc_list, otc_labels) {
+  # Coerce to character and clean labels
+  rx_list    <- as.character(rx_list)
+  rx_labels  <- tolower(trimws(as.character(rx_labels)))
+  otc_list   <- as.character(otc_list)
+  otc_labels <- tolower(trimws(as.character(otc_labels)))
+  
+  match_rx        <- any(adhd_rx_ids %in% rx_list, na.rm = TRUE)
+  match_label     <- if (!adhd_restrict_to_rx)
+    any(adhd_labels %in% rx_labels, na.rm = TRUE) else FALSE
+  match_otc       <- any(adhd_rx_ids %in% otc_list, na.rm = TRUE)
+  match_otc_label <- if (!adhd_restrict_to_rx)
+    any(adhd_labels %in% otc_labels, na.rm = TRUE) else FALSE
   
   as.integer(match_rx | match_label | match_otc | match_otc_label)
-  
 },
-ABCD_Medication_Inventory$rx_ids_all,
-ABCD_Medication_Inventory$rx_labels_all,
-ABCD_Medication_Inventory$otc_ids_all,
-ABCD_Medication_Inventory$otc_labels_all,
-SIMPLIFY = TRUE)
+med_data$rx_ids_all,
+med_data$rx_labels_all,
+med_data$otc_ids_all,
+med_data$otc_labels_all,
+SIMPLIFY = TRUE, USE.NAMES = FALSE)
 
-#distributions that took any ADHD medication in the past 2 weeks
-table(ABCD_Medication_Inventory$session_id, ABCD_Medication_Inventory$x2wk_any_adhd_med)
+table(med_data$session_id, med_data$x2wk_any_adhd_med)
 #            0     1
 # ses-00A 10851  1008
 # ses-01A 10218   978
@@ -50,3 +178,242 @@ table(ABCD_Medication_Inventory$session_id, ABCD_Medication_Inventory$x2wk_any_a
 # ses-04A  8848   866
 # ses-05A  8080   770
 # ses-06A  4550   475
+
+
+####################
+#Now past 24 hour use
+
+# ---------------------------------------------
+# Step 1: Load ADHD medication mapping ONLY
+# (file that has just ADHD meds)
+# ---------------------------------------------
+adhd_map <- read_excel(
+  "~/PhD/DBIL/ABCD Medication/ADHD_Medications.xlsx"
+) %>%
+  select(RXCUI, Medication_Label, Estimated_Use_Category_1) %>%
+  mutate(
+    RXCUI            = as.character(RXCUI),
+    Medication_Label = str_trim(tolower(Medication_Label))
+  )
+
+# ---------------------------------------------
+# Step 2: Extract long-format label + 24hr data
+# ---------------------------------------------
+extract_med_info <- function(data, type = c("rx", "otc")) {
+  type <- match.arg(type)
+  
+  # Get BOTH early and late label columns
+  label_cols_early <- grep(paste0("ph_p_meds__", type, "__label_\\d+$"),
+                           names(data), value = TRUE)
+  label_cols_late  <- grep(paste0("ph_p_meds__", type, "__label_\\d+__v01$"),
+                           names(data), value = TRUE)
+  
+  all_label_cols <- c(label_cols_early, label_cols_late)
+  index_nums     <- str_extract(all_label_cols, "\\d+")
+  
+  # Build corresponding ID columns (with or without __v01)
+  id_cols <- ifelse(
+    grepl("__v01$", all_label_cols),
+    paste0("ph_p_meds__", type, "__id_", index_nums, "__v01"),
+    paste0("ph_p_meds__", type, "__id_", index_nums)
+  )
+  
+  # 24-hour flag columns never change (no __v01 suffix)
+  taken_cols <- paste0("ph_p_meds__", type, "_", index_nums, "__01__06")
+  
+  bind_rows(lapply(seq_along(all_label_cols), function(i) {
+    data %>%
+      select(
+        participant_id, session_id,
+        label      = all_of(all_label_cols[i]),
+        rxcui      = all_of(id_cols[i]),
+        taken_24hr = all_of(taken_cols[i])
+      ) %>%
+      mutate(index = index_nums[i], type = type)
+  }))
+}
+
+rx_data_long  <- extract_med_info(med_data, "rx")
+otc_data_long <- extract_med_info(med_data, "otc")
+
+# Combine RX + OTC
+all_data_long <- bind_rows(rx_data_long, otc_data_long) %>%
+  mutate(
+    label      = str_trim(tolower(label)),
+    rxcui      = as.character(rxcui),
+    taken_24hr = ifelse(tolower(taken_24hr) %in% c("yes", "1"), 1, 0)
+  )
+
+# ---------------------------------------------
+# Step 3: Create "any ADHD med in past 24h" flag
+# ---------------------------------------------
+
+adhd_rxcui  <- unique(adhd_map$RXCUI)
+adhd_labels <- unique(adhd_map$Medication_Label)
+
+adhd_24hr <- all_data_long %>%
+  mutate(
+    is_adhd = (!is.na(rxcui) & rxcui %in% adhd_rxcui) |
+      (!is.na(label) & label %in% adhd_labels)
+  ) %>%
+  group_by(participant_id, session_id) %>%
+  summarise(
+    x24hr_any_adhd_med = as.integer(any(is_adhd & taken_24hr == 1)),
+    .groups = "drop"
+  )
+
+# ---------------------------------------------
+# Step 4: Attach to med_data
+# ---------------------------------------------
+med_data <- med_data %>%
+  left_join(adhd_24hr, by = c("participant_id", "session_id")) %>%
+  mutate(
+    x24hr_any_adhd_med = replace_na(x24hr_any_adhd_med, 0L)
+  )
+
+
+table(med_data$session_id, med_data$x24hr_any_adhd_med)
+#            0     1
+# ses-00A 11028   831
+# ses-01A 10436   760
+# ses-02A 10128   776
+# ses-03A  9703   694
+# ses-04A  9034   680
+# ses-05A  8237   613
+# ses-06A  4690   335
+
+##########################
+#Now let's do past year use
+# ---------------------------------------------
+# 1. Load ADHD medication mapping (ADHD-only file)
+# ---------------------------------------------
+adhd_map <- read_excel(
+  "~/PhD/DBIL/ABCD Medication/ADHD_Medications.xlsx"
+) %>%
+  select(RXCUI, Medication_Label) %>%
+  mutate(
+    RXCUI            = as.character(RXCUI),
+    Medication_Label = str_trim(tolower(Medication_Label))
+  ) %>%
+  distinct()
+
+adhd_rxcui  <- unique(adhd_map$RXCUI)
+adhd_labels <- unique(adhd_map$Medication_Label)
+
+# ---------------------------------------------
+# 2. Zero out past-year (__v01) values for visits
+#    where past-year was NOT collected:
+#    baseline (ses-00A), year1 (ses-01A), year2 (ses-02A)
+# ---------------------------------------------
+sessions_no_1yr <- c("ses-00A", "ses-01A", "ses-02A")
+
+v01_cols <- grep("__v01", names(med_data), value = TRUE)
+
+med_data <- med_data %>%
+  mutate(
+    across(
+      all_of(v01_cols),
+      ~ ifelse(session_id %in% sessions_no_1yr, NA, .)
+    )
+  )
+
+# ---------------------------------------------
+# 3. Extract past-year RX and OTC variables
+#    (label + RXCUI from __v01 columns)
+# ---------------------------------------------
+extract_past_year_info <- function(data, type = c("rx", "otc")) {
+  type <- match.arg(type)
+  
+  label_cols <- grep(
+    paste0("ph_p_meds__", type, "__label_\\d+__v01"),
+    names(data),
+    value = TRUE
+  )
+  
+  index_nums <- str_extract(label_cols, "\\d+")
+  id_cols    <- paste0("ph_p_meds__", type, "__id_", index_nums, "__v01")
+  
+  bind_rows(lapply(seq_along(label_cols), function(i) {
+    data %>%
+      select(
+        participant_id, session_id,
+        label = all_of(label_cols[i]),
+        rxcui = all_of(id_cols[i])
+      ) %>%
+      mutate(
+        index = index_nums[i],
+        type  = type
+      )
+  }))
+}
+
+rx_year_data  <- extract_past_year_info(med_data, "rx")
+otc_year_data <- extract_past_year_info(med_data, "otc")
+
+# ---------------------------------------------
+# 4. Combine RX + OTC and clean
+# ---------------------------------------------
+all_year_data <- bind_rows(rx_year_data, otc_year_data) %>%
+  mutate(
+    label = str_trim(tolower(label)),
+    rxcui = as.character(rxcui)
+  ) %>%
+  # Remove visits where past-year was not collected
+  filter(!session_id %in% sessions_no_1yr)
+
+# ---------------------------------------------
+# 5. Create "any ADHD med in past year" flag
+# ---------------------------------------------
+adhd_1yr <- all_year_data %>%
+  mutate(
+    is_adhd =
+      (!is.na(rxcui) & rxcui %in% adhd_rxcui) |
+      (!is.na(label) & label %in% adhd_labels)
+  ) %>%
+  group_by(participant_id, session_id) %>%
+  summarise(
+    x1yr_any_adhd_med = as.integer(any(is_adhd, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+# ---------------------------------------------
+# 6. Attach x1yr_any_adhd_med back to inventory
+# ---------------------------------------------
+med_data <- med_data %>%
+  left_join(adhd_1yr, by = c("participant_id", "session_id"))
+
+# At this point:
+# - Year 3+ sessions: 1 = any ADHD med in past year, 0 = none
+# - ses-00A / ses-01A / ses-02A: x1yr_any_adhd_med is NA (not collected)
+
+
+table(med_data$session_id, med_data$x24hr_any_adhd_med)
+#             0     1
+# ses-00A 11028   831
+# ses-01A 10436   760
+# ses-02A 10128   776
+# ses-03A  9703   694
+# ses-04A  9034   680
+# ses-05A  8237   613
+# ses-06A  4690   335
+
+table(med_data$session_id, med_data$x2wk_any_adhd_med)
+#            0     1
+# ses-00A 10851  1008
+# ses-01A 10218   978
+# ses-02A  9913   991
+# ses-03A  9520   877
+# ses-04A  8848   866
+# ses-05A  8080   770
+# ses-06A  4550   475
+
+
+table(med_data$session_id, med_data$x1yr_any_adhd_med)
+#            0    1
+# ses-00A    0    0
+# ses-01A    0    0
+# ses-02A    0    0
+# ses-03A 9313 1084
+# ses-04A 8669 1045
+# ses-05A 7893  957
+# ses-06A 4452  573
