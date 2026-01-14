@@ -2,7 +2,7 @@
 
 📂 Dataset Version
 
-All scripts require the ABCD 6.0 data release.
+All scripts require the ABCD 6.0 data release. 
 
 📚 Medication Categories
 
@@ -16,13 +16,23 @@ You can explore the medication categories at the following resources:
 
 🗂️ Mapping File
 
-Each script depends on a mapping file (e.g., ADHD_Medications.xlsx) that determines which medications belong to each category.
+To reproduce the medication category definitions used in the Tableau dashboard, users should rely on the following two files in this repository:
 
-Your mapping file must contain at least the following columns:
+ABCD_Medication_Mapping_Github.xlsx
 
-RXCUI	|
-Medication_Label |
-Estimated_Use_Category_1
+Mapping_2wk_Med_Use
+
+These files contain the full medication mapping logic and category assignments used to generate the dashboard-level summaries, including harmonized medication groupings derived from ABCD medication variables. 
+
+Users attempting to reproduce, extend, or audit the Tableau dashboard should use these files as the primary reference for medication classification.
+
+If you have any questions, concerns, or encounter issues when using these files, please feel free to reach out to lopdanie@ohsu.edu
+.
+
+If you use this mapping framework in your work, please cite the following preprint:
+
+Lopez, D. A., et al. [Title]. medRxiv (2025).
+https://www.medrxiv.org/content/10.1101/2025.11.19.25340321v1
 
 📄 Data Format
 
