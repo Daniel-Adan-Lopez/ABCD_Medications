@@ -1,0 +1,169 @@
+library(arrow)
+library(readxl)
+library(stringr)
+library(tidyr)
+library(dplyr)
+library(furrr)
+library(purrr)
+# Load medication data and lookup  
+med_data <- ABCD_Med_MasterList #This is your main ABCD dataframe. Should work with 6.0 and 6.1.
+#In my case, ABCD Med Masterlist contains all the demographics + RX or OTC related survey questions in long format.
+meds_info <- read_excel("ABCD_MedicationMapping_GitHub.xlsx") #the mapping file
+
+#
+#First setting this up to create the "past two weeks" medication use variables. 
+
+# Set up parallel plan (adjust workers as needed)
+future::plan(multisession, workers = parallel::detectCores() - 1)
+
+# Define early sessions. Needed to later differentiate with the past year time frame.
+early_sessions <- c("ses-00A", "ses-01A", "ses-02A")
+
+# Add early visit flag
+med_data <- med_data %>%
+  mutate(is_early_visit = session_id %in% early_sessions)
+
+# Define column names
+rx_cols_early        <- paste0("ph_p_meds__rx__id_", str_pad(1:15, 3, pad = "0"))
+rx_label_cols_early  <- paste0("ph_p_meds__rx__label_", str_pad(1:15, 3, pad = "0"))
+rx_cols_late         <- paste0("ph_p_meds__rx__id_", str_pad(1:15, 3, pad = "0"), "__v01")
+rx_label_cols_late   <- paste0("ph_p_meds__rx__label_", str_pad(1:15, 3, pad = "0"), "__v01")
+rx_confirm_late      <- paste0("ph_p_meds__rx_", str_pad(1:15, 3, pad = "0"), "__01")
+otc_cols_early       <- paste0("ph_p_meds__otc__id_", str_pad(1:15, 3, pad = "0"))
+otc_label_cols_early <- paste0("ph_p_meds__otc__label_", str_pad(1:15, 3, pad = "0"))
+otc_cols_late        <- paste0("ph_p_meds__otc__id_", str_pad(1:15, 3, pad = "0"), "__v01")
+otc_label_cols_late  <- paste0("ph_p_meds__otc__label_", str_pad(1:15, 3, pad = "0"), "__v01")
+
+# Convert to list of rows
+row_list <- med_data %>%
+  select(participant_id, session_id, is_early_visit,
+         all_of(c(rx_cols_early, rx_label_cols_early,
+                  rx_cols_late, rx_label_cols_late, rx_confirm_late,
+                  otc_cols_early, otc_label_cols_early,
+                  otc_cols_late, otc_label_cols_late))) %>%
+  split(., seq_len(nrow(.)))  # Split into list of rows
+
+# Function to apply per row
+process_row <- function(row) {
+  is_early <- row$is_early_visit
+  
+  # Pull values
+  rx_ids <- if (is_early) {
+    unlist(row[rx_cols_early])
+  } else {
+    confirms <- unlist(row[rx_confirm_late])
+    ids <- unlist(row[rx_cols_late])
+    ids[!(confirms == 1)] <- NA
+    ids
+  }
+  
+  rx_labels <- if (is_early) {
+    unlist(row[rx_label_cols_early])
+  } else {
+    confirms <- unlist(row[rx_confirm_late])
+    labels <- unlist(row[rx_label_cols_late])
+    labels[!(confirms == 1)] <- NA
+    labels
+  }
+  
+  otc_ids <- if (is_early) {
+    unlist(row[otc_cols_early])
+  } else {
+    unlist(row[otc_cols_late])
+  }
+  
+  otc_labels <- if (is_early) {
+    unlist(row[otc_label_cols_early])
+  } else {
+    unlist(row[otc_label_cols_late])
+  }
+  
+  list(
+    rx_ids_all = rx_ids,
+    rx_labels_all = rx_labels,
+    otc_ids_all = otc_ids,
+    otc_labels_all = otc_labels
+  )
+}
+
+# Apply in parallel using furrr
+med_lists <- furrr::future_map(row_list, process_row, .progress = TRUE)
+
+# Combine back into med_data
+med_data <- med_data %>%
+  bind_cols(
+    tibble::tibble(
+      rx_ids_all     = map(med_lists, "rx_ids_all"),
+      rx_labels_all  = map(med_lists, "rx_labels_all"),
+      otc_ids_all    = map(med_lists, "otc_ids_all"),
+      otc_labels_all = map(med_lists, "otc_labels_all")
+    )
+  )
+
+########
+# List of RXCUI codes where label is unreliable
+force_rx_only <- c("1150360", "1159901", "1440934", "393497", "55062", "6142", "702425")
+
+#function to clean names - revised version to remove the extra underscores
+clean_colname <- function(category, prefix = "") {
+  category %>%
+    str_to_lower() %>%                                # lower case everything
+    str_replace_all("[^a-z0-9]+", "_") %>%            # replace any non-alphanumeric with underscore
+    str_replace_all("_+", "_") %>%                    # collapse multiple underscores into one
+    str_replace_all("^_|_$", "") %>%                  # strip leading/trailing underscores
+    paste0(prefix, .)                                 # add prefix if provided
+}
+
+
+# Get all medication categories
+all_categories <- na.omit(unique(meds_info$Estimated_Use_Category_1))
+
+
+# Loop over categories to create past 2-week flags
+for (cat in all_categories) {
+  col_name <- clean_colname(cat, prefix = "x2wk_")
+  message("Creating column for category: ", cat, " → ", col_name)
+  
+  cat_meds <- meds_info %>% filter(Estimated_Use_Category_1 == cat)
+  rx_ids   <- unique(as.character(cat_meds$RXCUI))
+  labels   <- unique(as.character(cat_meds$Medication_Label))
+  restrict_to_rx <- any(rx_ids %in% force_rx_only)
+  
+  med_data[[col_name]] <- mapply(function(rx_list, rx_labels, otc_list, otc_labels) {
+    match_rx        <- any(rx_ids %in% rx_list, na.rm = TRUE)
+    match_label     <- if (!restrict_to_rx) any(labels %in% rx_labels, na.rm = TRUE) else FALSE
+    match_otc       <- any(rx_ids %in% otc_list, na.rm = TRUE)
+    match_otc_label <- if (!restrict_to_rx) any(labels %in% otc_labels, na.rm = TRUE) else FALSE
+    
+    as.integer(match_rx | match_label | match_otc | match_otc_label)
+  },
+  med_data$rx_ids_all,
+  med_data$rx_labels_all,
+  med_data$otc_ids_all,
+  med_data$otc_labels_all,
+  SIMPLIFY = TRUE, USE.NAMES = FALSE)
+}
+
+#######Example of what you may now see
+
+table(med_data$session_id, med_data$x2wk_dietary_supplement_vitamin_d)
+#           0     1
+# ses-00A 11728   140
+# ses-01A 11073   146
+# ses-02A 10765   208
+# ses-03A 10131   319
+# ses-04A  9424   315
+# ses-05A  8557   328
+# ses-06A  4894   162
+
+table(med_data$session_id, med_data$x2wk_gi_acid_related_treatments)
+#            0     1
+# ses-00A 11742   117
+# ses-01A 11100    96
+# ses-02A 10790   114
+# ses-03A 10252   145
+# ses-04A  9563   151
+# ses-05A  8720   130
+# ses-06A  4932    93
+
+#################################
